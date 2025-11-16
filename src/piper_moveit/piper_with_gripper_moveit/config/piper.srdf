@@ -12,15 +12,13 @@
 
     <!-- === Arm (6 DOF) === -->
     <group name="arm">
-        <chain base_link="base_link" tip_link="link6"/>
+        <chain base_link="base_link" tip_link="link9"/>
     </group>
 
-    <!-- === Gripper (無効化中) === -->
-    <!--
-    <group name="gripper">
+
+    <group name="gripper_group">
         <joint name="joint7"/>
     </group>
-    -->
 
     <!-- === Group States === -->
     <group_state name="zero" group="arm">
@@ -32,14 +30,13 @@
         <joint name="joint6" value="0"/>
     </group_state>
 
-    <!--
-    <group_state name="open" group="gripper">
+    
+    <group_state name="open" group="gripper_group">
         <joint name="joint7" value="0.035"/>
     </group_state>
-    <group_state name="close" group="gripper">
+    <group_state name="close" group="gripper_group">
         <joint name="joint7" value="0"/>
     </group_state>
-    -->
 
     <!-- === Disable Collisions === -->
     <disable_collisions link1="base_link" link2="link1" reason="Adjacent"/>
@@ -67,14 +64,24 @@
     <disable_collisions link1="link7" link2="link8" reason="Adjacent"/>
     <disable_collisions link1="gripper_base" link2="link8" reason="Adjacent"/>
 
-    <!-- === World joint === -->
-    <virtual_joint name="world_joint" type="fixed" parent_frame="world" child_link="base_link"/>
 
-    <!-- === Combined Group (無効化中) === -->
-    <!--
+
+
     <group name="arm_with_gripper">
         <group name="arm"/>
-        <group name="gripper"/>
+        <group name="gripper_group"/>
     </group>
-    -->
+    <!-- === エンドエフェクタを 'arm' に設定（先端: link7） === -->
+    <end_effector name="gripper"
+                  parent_link="gripper_base"
+                  group="gripper_group"
+                  parent_group="arm_with_gripper"/>
+     
+    
+    <default_state name="default_open">
+        <group_state name="open" group="gripper_group"/>
+    </default_state>
+
+
+
 </robot>

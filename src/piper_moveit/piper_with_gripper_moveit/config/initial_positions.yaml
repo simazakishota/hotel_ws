@@ -7,5 +7,5 @@ initial_positions:
   joint4: 0
   joint5: 0
   joint6: 0
-  joint7: 0
-  joint8: 0
+  joint7: 0.035
+  

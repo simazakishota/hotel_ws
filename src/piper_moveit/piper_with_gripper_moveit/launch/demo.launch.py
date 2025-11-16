@@ -59,6 +59,7 @@ def generate_launch_description():
             moveit_config.robot_description_semantic,
             moveit_config.robot_description_kinematics,
             load_yaml("piper_with_gripper_moveit", "config/moveit_planning_pipeline.yaml"),
+            load_yaml("piper_with_gripper_moveit", "config/moveit_controllers.yaml"),
         ],
     )
 
@@ -69,7 +70,7 @@ def generate_launch_description():
     # ===== 自作ノード（my_planner） =====
     my_planner_node = Node(
         package="my_moveit_example",
-        executable="my_planner",
+        executable="my_planner_node",
         output="screen",
         parameters=[
             moveit_config.robot_description,                # ✅ URDFを渡す
@@ -95,6 +96,35 @@ def generate_launch_description():
         ]
     )
 
+
+    # ===== RViz2 ノード（MoveIt設定付き） =====
+    rviz_config_path = os.path.join(
+        get_package_share_directory("piper_with_gripper_moveit"),
+        "config",
+        "moveit.rviz"
+    )
+
+    rviz_node = Node(
+        package="rviz2",
+        executable="rviz2",
+        name="rviz2",
+        output="screen",
+        arguments=["-d", rviz_config_path],
+        parameters=[
+            moveit_config.robot_description,
+            moveit_config.robot_description_semantic,
+            moveit_config.robot_description_kinematics,
+        ],
+    )
+    # ===== Robot State Publisher =====
+    robot_state_pub_node = Node(
+        package="robot_state_publisher",
+        executable="robot_state_publisher",
+        output="screen",
+        parameters=[moveit_config.robot_description],
+    )
+
+
     # ===== LaunchDescriptionにまとめる =====
     return LaunchDescription([
         can_port_arg,
@@ -104,5 +134,7 @@ def generate_launch_description():
         my_planner_node,
         piper_ctrl_node,
         move_group_node, 
+        rviz_node,
+        robot_state_pub_node,
        # *ld.entities  # generate_demo_launch が返すノード群を追加
     ])

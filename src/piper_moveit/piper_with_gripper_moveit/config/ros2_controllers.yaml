@@ -5,11 +5,9 @@ controller_manager:
 
     arm_controller:
       type: joint_trajectory_controller/JointTrajectoryController
-      #type: velocity_controllers/JointGroupVelocityController 
 
     gripper_controller:
       type: joint_trajectory_controller/JointTrajectoryController
-
 
     joint_state_broadcaster:
       type: joint_state_broadcaster/JointStateBroadcaster
@@ -28,15 +26,19 @@ arm_controller:
     state_interfaces:
       - position
       - velocity
+    state_publish_rate: 200.0
+    
 gripper_controller:
   ros__parameters:
     joints:
-      - joint7
+      - joint7          # ✅ URDFにも存在するjoint名にする
     command_interfaces:
       - position
     state_interfaces:
       - position
       - velocity
+    state_publish_rate: 200.0
+
 joint_state_broadcaster:
   ros__parameters:
     publish_topic: "/joint_states"

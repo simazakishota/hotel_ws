@@ -1,0 +1,10 @@
+setup.py
+grasp_inference/__init__.py
+grasp_inference/grasp_inference_node.py
+grasp_inference.egg-info/PKG-INFO
+grasp_inference.egg-info/SOURCES.txt
+grasp_inference.egg-info/dependency_links.txt
+grasp_inference.egg-info/entry_points.txt
+grasp_inference.egg-info/requires.txt
+grasp_inference.egg-info/top_level.txt
+grasp_inference.egg-info/zip-safe

@@ -323,7 +323,7 @@
     type="revolute">
     <origin
       xyz="8.8259E-05 -0.091 0"
-      rpy="1.5708 0 0" />
+      rpy="1.5708 0.349 0" />
     <parent
       link="link5" />
     <child
@@ -335,7 +335,7 @@
       upper="2.0944"
       effort="100"
       velocity="3" />
-  </joint>
+</joint>
 
 <!-- Realsense camera base link (driver側の frame_id に合わせる) -->
 <link name="camera_camera_camera_link"/>
@@ -349,7 +349,7 @@
 <joint name="gripper_base_to_realsense" type="fixed">
   <parent link="gripper_base"/>
   <child link="camera_camera_camera_link"/>
-  <origin xyz="0 0 0.06" rpy="0 0 4.7114"/>
+  <origin xyz="-0.05 0.0 0.05" rpy="0 0 4.7114"/>
 </joint>
 
 <!-- カラー系 -->
@@ -497,12 +497,12 @@
       <mass
         value="0.025" />
       <inertia
-        ixx="0.00007371"
-        ixy="-0.00000113"
-        ixz="0.00000021"
-        iyy="-0.00000113"
-        iyz="-0.00001372"
-        izz="0.0000747" />
+        ixx="1e-4"
+        ixy="0.0"
+        ixz="0.0"
+        iyy="1e-4"
+        iyz="0.0"
+        izz="1e-4" />
     </inertial>
     <visual>
       <origin
@@ -547,6 +547,23 @@
       velocity="1" />
     <mimic joint="joint7" multiplier="1" offset="0" />
   </joint>
+
+
+  <link name="link9">
+  <visual>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <geometry>
+      <sphere radius="0.001"/> <!-- 小さい点でOK -->
+    </geometry>
+  </visual>
+</link>
+
+<joint name="gripper_base_to_link9" type="fixed">
+  <parent link="gripper_base"/>
+  <child link="link9"/>
+  <origin xyz="0 0 0.05" rpy="3.14 -1.5708 0"/> <!-- ★ここがEE位置 -->
+</joint>
+
 <!-- controller -->
   <xacro:macro name="transmission_block" params="tran_name joint_name motor_name">
     <transmission name="${tran_name}">

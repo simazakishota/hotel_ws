@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+from piper_sdk import C_PiperInterface
+import math
+import time
+
+# === 0. スケーリング関数 ===
+def deg_to_piper(angle_deg: float) -> int:
+    """角度[deg]をPiperの内部単位(0.001度)に変換"""
+    return int(angle_deg * 1000)
+
+def rad_to_piper(angle_rad: float) -> int:
+    """角度[rad]をPiperの内部単位(0.001度)に変換"""
+    return int(angle_rad * 180.0 / math.pi * 1000)
+
+# === 1. 接続 ===
+arm = C_PiperInterface(can_name='can1')
+arm.ConnectPort()
+print("✅ Connected to Piper on can1")
+
+# === 2. トルクON ===
+arm.EnableArm(7)
+time.sleep(0.5)  # ← トルクONが安定するまで少し待つ
+print("✅ Arm enabled")
+
+# 状態確認（Trueが並んでいればOK）
+print("Enable status:", arm.GetArmEnableStatus())
+
+# === 3. モード設定（位置制御モード） ===
+arm.ModeCtrl(ctrl_mode=0x01, move_mode=0x01, move_spd_rate_ctrl=80)
+time.sleep(0.2)  # ← ここ重要、設定反映待ち
+print("✅ Mode set to position control (speed=80)")
+
+# === 4. 適当な位置に動かす ===
+# 安全な角度：±0.5rad ≒ ±28.6°
+target_joints = [
+    0,
+    -int(0.2 * 180 / math.pi * 1000),  # -0.2rad
+    int(0.7 * 180 / math.pi * 1000),   # 0.7rad
+    0,
+    0,
+    0
+]
+
+
+print(f"🦾 Moving to: {target_joints}")
+arm.JointCtrl(*target_joints)
+
+# === 5. モーション状態を確認 ===
+time.sleep(0.5)
+status = arm.GetArmStatus().arm_status.motion_status
+print("motion_status:", status)  # 1 = 実行中, 0 = 停止中
+
+# === 6. 数秒待って完了 ===
+time.sleep(3)
+print("✅ Done.")

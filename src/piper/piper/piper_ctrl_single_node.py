@@ -2,6 +2,7 @@
 # -*-coding:utf8-*-
 # This file controls a single robotic arm node and handles the movement of the robotic arm with a gripper.
 import rclpy
+import asyncio
 from rclpy.node import Node
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Bool
@@ -21,6 +22,7 @@ from trajectory_msgs.msg import JointTrajectory
 from control_msgs.action import FollowJointTrajectory
 from rclpy.action import ActionServer, CancelResponse, GoalResponse
 from trajectory_msgs.msg import JointTrajectory
+from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
 
 class PiperRosNode(Node):
     """ROS2 node for the robotic arm"""
@@ -43,8 +45,18 @@ class PiperRosNode(Node):
         self.get_logger().info(f"auto_enable is {self.auto_enable}")
         self.get_logger().info(f"gripper_exist is {self.gripper_exist}")
         self.get_logger().info(f"gripper_val_mutiple is {self.gripper_val_mutiple}")
+
+        # ✅ MoveIt互換のQoS設定（best_effort）
+        qos = QoSProfile(
+                reliability=QoSReliabilityPolicy.RELIABLE,
+                history=QoSHistoryPolicy.KEEP_LAST,
+                depth=10
+        )
+
+        self.last_gripper_value = 60000
+
         # Publishers
-        self.joint_pub = self.create_publisher(JointState, 'joint_states_single', 1)
+        self.joint_pub = self.create_publisher(JointState, 'joint_states_single', qos)
         self.joint_ctrl_pub = self.create_publisher(JointState, 'joint_ctrl', 1)
         self.arm_status_pub = self.create_publisher(PiperStatusMsg, 'arm_status', 1)
         self.end_pose_pub = self.create_publisher(Pose, 'end_pose', 1)
@@ -54,13 +66,13 @@ class PiperRosNode(Node):
         self.motor_srv = self.create_service(Enable, 'enable_srv', self.handle_enable_service)
         # Joint
         self.joint_states = JointState()
-        self.joint_states.name = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6', 'gripper']
+        self.joint_states.name = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6', 'joint7']
         self.joint_states.position = [0.0] * 7
         self.joint_states.velocity = [0.0] * 7
         self.joint_states.effort = [0.0] * 7
         # Joint ctrl
         self.joint_ctrl = JointState()
-        self.joint_ctrl.name = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6', 'gripper']
+        self.joint_ctrl.name = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6', 'joint7']
         self.joint_ctrl.position = [0.0] * 7
         self.joint_ctrl.velocity = [0.0] * 7
         self.joint_ctrl.effort = [0.0] * 7
@@ -77,16 +89,25 @@ class PiperRosNode(Node):
         self.create_subscription(JointTrajectory,'/arm_controller/joint_trajectory',self.trajectory_callback,10)
         
         # --- MoveIt用 FollowJointTrajectory Action サーバー ---
-        #self.follow_action_server = ActionServer(
-        #        self,
-        #        FollowJointTrajectory,
-        #        '/arm_controller/follow_joint_trajectory',
-        #        execute_callback=self.follow_joint_trajectory_execute,
-        #        goal_callback=self.follow_joint_trajectory_goal,
-        #        cancel_callback=self.follow_joint_trajectory_cancel
-        #)
-        #self.get_logger().info("✅ FollowJointTrajectory Action Server started on /arm_controller/follow_joint_trajectory")
+        self.follow_action_server = ActionServer(
+                self,
+                FollowJointTrajectory,
+                '/arm_controller/follow_joint_trajectory',
+                execute_callback=self.follow_joint_trajectory_execute,
+                goal_callback=self.follow_joint_trajectory_goal,
+                cancel_callback=self.follow_joint_trajectory_cancel
+        )
+        self.get_logger().info("✅ FollowJointTrajectory Action Server started on /arm_controller/follow_joint_trajectory")
 
+        self.gripper_action_server = ActionServer(
+                self,
+                FollowJointTrajectory,
+                '/gripper_controller/follow_joint_trajectory',
+                execute_callback=self.follow_joint_trajectory_execute,
+                goal_callback=self.follow_joint_trajectory_goal,
+                cancel_callback=self.follow_joint_trajectory_cancel
+        )
+    
 
         self.publisher_thread = threading.Thread(target=self.publish_thread)
         self.publisher_thread.start()
@@ -97,7 +118,7 @@ class PiperRosNode(Node):
     def publish_thread(self):
         """Publish messages from the robotic arm
         """
-        rate = self.create_rate(300)  # 300 Hz
+        rate = self.create_rate(50)  # 50 Hz
         enable_flag = False
         # Set timeout (seconds)
         timeout = 5
@@ -117,7 +138,7 @@ class PiperRosNode(Node):
                         self.piper.GetArmLowSpdInfoMsgs().motor_6.foc_status.driver_enable_status
                     self.get_logger().info(f"Enable status:{enable_flag}")
                     self.piper.EnableArm(7)
-                    self.piper.GripperCtrl(0, 1000, 0x01, 0)
+                    #self.piper.GripperCtrl(0, 1000, 0x01, 0)
                     if(enable_flag):
                         self.__enable_flag = True
                     self.get_logger().info("--------------------")
@@ -171,7 +192,8 @@ class PiperRosNode(Node):
     def PublishArmJointAndGripper(self):
         js = JointState()
         js.header.stamp = self.get_clock().now().to_msg()
-        js.name = ['joint1','joint2','joint3','joint4','joint5','joint6','gripper']
+        js.header.frame_id = "base_link"
+        js.name = ['joint1','joint2','joint3','joint4','joint5','joint6','joint7']
 
         # position (ここは適当に仮値でもOK)
         joint_0 = (self.piper.GetArmJointMsgs().joint_state.joint_1 / 1000) * 0.017444
@@ -275,7 +297,8 @@ class PiperRosNode(Node):
 
         # 创建一个字典来存储关节名称与位置的映射
         joint_positions = {}
-        joint_6 = 0
+        joint_6 = self.last_gripper_value  # ✅ 前回値を初期値に
+
 
         # 遍历joint_data.name来映射位置
         for idx, joint_name in enumerate(joint_data.name):
@@ -287,6 +310,7 @@ class PiperRosNode(Node):
             # self.get_logger().info(f"joint_7: {joint_data.position[6]}")
             joint_6 = round(joint_data.position[6] * 1000 * 1000)
             joint_6 = joint_6 * self.gripper_val_mutiple
+            self.last_gripper_value = joint_6 
 
         # 控制电机速度
         if self.GetEnableFlag():
@@ -297,13 +321,13 @@ class PiperRosNode(Node):
             if not all_zeros:
                 lens = len(joint_data.velocity)
                 if lens == 7:
-                    vel_all = clip(round(joint_data.velocity[6]), 1, 100)
+                    vel_all = clip(round(joint_data.velocity[6]), 1, 30)
                     self.get_logger().info(f"vel_all: {vel_all}")
                     self.piper.MotionCtrl_2(0x01, 0x01, vel_all)
                 else:
-                    self.piper.MotionCtrl_2(0x01, 0x01, 100)
+                    self.piper.MotionCtrl_2(0x01, 0x01, 30)
             else:
-                self.piper.MotionCtrl_2(0x01, 0x01, 100)
+                self.piper.MotionCtrl_2(0x01, 0x01, 30)
 
             # 使用关节名称来动态控制关节
             self.piper.JointCtrl(
@@ -341,9 +365,11 @@ class PiperRosNode(Node):
         if enable_flag.data:
             self.__enable_flag = True
             self.piper.EnableArm(7)
+
             if self.gripper_exist:
-                self.piper.GripperCtrl(0, 1000, 0x02, 0)
-                self.piper.GripperCtrl(0, 1000, 0x01, 0)
+                self.piper.GripperCtrl(self.last_gripper_value, 1000, 0x01, 0)
+                #self.piper.GripperCtrl(0, 1000, 0x02, 0)
+                #self.piper.GripperCtrl(0, 1000, 0x01, 0)
         else:
             self.__enable_flag = False
             self.piper.DisableArm(7)
@@ -373,7 +399,8 @@ class PiperRosNode(Node):
             if req.enable_request:
                 enable_flag = all(enable_list)
                 self.piper.EnableArm(7)
-                self.piper.GripperCtrl(0, 1000, 0x01, 0)
+                #self.piper.GripperCtrl(0, 1000, 0x01, 0)
+                self.piper.GripperCtrl(self.last_gripper_value, 1000, 0x01, 0)
             else:
                 enable_flag = any(enable_list)
                 self.piper.DisableArm(7)
@@ -404,30 +431,58 @@ class PiperRosNode(Node):
         return resp
 
     def trajectory_callback(self, msg: JointTrajectory):
-        """Callback for MoveIt Servo JointTrajectory output"""
+        """Play full trajectory step-by-step instead of only the final point"""
         if not msg.points:
+            self.get_logger().warn("Received empty trajectory")
             return
 
-        # 最後のポイントを取り出す
-        target_pos = msg.points[-1].positions  # [rad]
-        factor = 180.0 / math.pi * 1000  # rad → 0.001度
+        factor = 180.0 / math.pi * 1000  # rad → 0.001°単位（Piper SDK）
+        prev_time = 0.0
 
-        # 6関節を変換
-        j = [int(target_pos[i] * factor) for i in range(6)]
+        self.get_logger().info(f"🔄 Executing full trajectory with {len(msg.points)} points")
 
-        # グリッパ（7番目があれば）
-        gripper = 0
-        if len(target_pos) > 6:
-            gripper = int(target_pos[6] * factor)
+        # --- 各ポイントを順番に実行 ---
+        for i, point in enumerate(msg.points):
+            target_pos = point.positions
+            n = len(target_pos)
 
-        if self.GetEnableFlag():
-            # Jointモードに切り替えて送信
-            self.piper.ModeCtrl(ctrl_mode=0x01, move_mode=0x01, move_spd_rate_ctrl=30)
-            self.piper.JointCtrl(*j)
-            if self.gripper_exist:
-                self.piper.GripperCtrl(abs(gripper), 1000, 0x01, 0)
+            # === アーム関節の角度を変換 ===
+            if n >= 6:
+                joints = [int(target_pos[j] * factor) for j in range(6)]
+            else:
+                self.get_logger().warn(f"Invalid joint count ({n}), skipping")
+                continue
 
-            self.get_logger().info(f"Trajectory → Piper: joints={j}, gripper={gripper}")
+            # === グリッパ（7軸目） ===
+            if n >= 7:
+                gripper = int(target_pos[6] * 2000000)  # 新しい指令値
+                self.last_gripper_value = gripper       # 前回値を更新
+            else:
+                gripper = self.last_gripper_value       # 前回値を維持（MoveItが値を送らな
+
+
+            # === Piper に送信 ===
+            if self.GetEnableFlag():
+                self.piper.ModeCtrl(ctrl_mode=0x01, move_mode=0x01, move_spd_rate_ctrl=30)
+                self.piper.JointCtrl(*joints)
+                if self.gripper_exist:
+                    self.piper.GripperCtrl(abs(gripper), 1000, 0x01, 0)
+
+                self.get_logger().info(
+                    f"[{i+1}/{len(msg.points)}] joints={joints}, gripper={gripper}"
+                )
+            else:
+                self.get_logger().warn("⚠️ Arm not enabled! Skipping this point.")
+                break
+
+            # === MoveIt の time_from_start に従ってスリープ ===
+            current = point.time_from_start.sec + point.time_from_start.nanosec * 1e-9
+            dt = max(0.0, current - prev_time)
+            prev_time = current
+            scale = 1.0  # 1.0倍 → 0.1s間隔が 0.1s になる
+            time.sleep(dt * scale)
+
+        self.get_logger().info("✅ Trajectory execution finished.")
 
     def follow_joint_trajectory_goal(self, goal_request):
         """Goal受信時の処理"""
@@ -449,30 +504,64 @@ class PiperRosNode(Node):
             goal_handle.abort()
             return FollowJointTrajectory.Result()
 
+        prev_time = 0.0  # 前回のtime_from_startを保存する変数
+
         # 各ポイントを逐次実行
         for point in traj.points:
             target_pos = point.positions
             factor = 180.0 / math.pi * 1000  # rad→0.001度単位
-            j = [int(target_pos[i] * factor) for i in range(6)]
-            gripper = 0
-            if len(target_pos) > 6:
-                gripper = int(target_pos[6] * factor)
+            n = len(target_pos)
+            self.get_logger().info(f"target_pos length = {n}")
+
+            if n >= 6:
+                # アーム軌道 or 同時制御軌道
+                if n == 7 and all(abs(target_pos[i]) < 1e-3 for i in range(6)):
+                    # ✅ アームはほぼ動かない → 現在角度を維持
+                    j = [int(self.joint_states.position[i] / 0.017444 * 1000) for i in range(6)]
+                                    # ---- 🔧 グリッパスケール調整 ----
+                    gripper = int(target_pos[-1] * 2000000) if n >= 7 else int(target_pos[0] * 2000000)
+                    mode = "gripper_only"
+                else:
+                    # ✅ 通常のアーム軌道
+                    j = [int(target_pos[i] * factor) for i in range(6)]
+                    if n >= 7:
+                        gripper = int(target_pos[-1] * 2000000)  # ← スケーリングは既存と同じ
+                        self.last_gripper_value = gripper        # ← 前回値を更新
+                    else:
+                        gripper = int(self.joint_states.position[6] * 2000000)  
+                        self.last_gripper_value = gripper 
+
+                    mode = "arm"
+            else:
+                # ✅ グリッパ単体軌道（1軸のみ）
+                j = [int(self.joint_states.position[i] / 0.017444 * 1000) for i in range(6)]
+                                # ---- 🔧 グリッパスケール調整 ----
+                gripper = int(target_pos[0] * 2000000) if n >= 7 else int(target_pos[0] * 2000000)
+                mode = "gripper"
+
 
             if self.GetEnableFlag():
-                # Jointモードで動作
                 self.piper.ModeCtrl(ctrl_mode=0x01, move_mode=0x01, move_spd_rate_ctrl=30)
                 self.piper.JointCtrl(*j)
                 if self.gripper_exist:
                     self.piper.GripperCtrl(abs(gripper), 1000, 0x01, 0)
-                self.get_logger().info(f"Trajectory Point → Piper: {j}")
+                self.get_logger().info(f"Trajectory Point [{mode}] → Piper: joints={j}, gripper={gripper}")
             else:
                 self.get_logger().warn("Arm not enabled! Skipping trajectory point.")
 
-            await asyncio.sleep(point.time_from_start.sec + point.time_from_start.nanosec * 1e-9)
+
+            # ---- ✅ 修正版：差分sleepに変更 ----
+            current = point.time_from_start.sec + point.time_from_start.nanosec * 1e-9
+            dt = max(0.0, current - prev_time)
+            prev_time = current
+            scale = 1.0  # ← 例: 1.0倍にして 0.1 s → 0.1 s 間隔に
+            time.sleep(dt * scale)
+            # ------------------------------------
 
         self.get_logger().info("✅ Trajectory execution finished.")
         goal_handle.succeed()
         return FollowJointTrajectory.Result()
+
 
 
 
@@ -486,3 +575,6 @@ def main(args=None):
     finally:
         piper_single_node.destroy_node()
         rclpy.shutdown()
+
+
+

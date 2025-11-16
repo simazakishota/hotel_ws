@@ -1,0 +1,3 @@
+[console_scripts]
+grasp_inference_node = grasp_inference.grasp_inference_node:main
+
